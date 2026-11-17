@@ -1,9 +1,9 @@
 {
   "id": "esagono-cluster",
   "kind": "tool",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "title": "Esagono Cluster",
-  "description": "Supercar-style hexagon rev ring for the middle of the iDrive 8 cluster: 72-segment rev ring, redline and shift flash, big digital rpm readout, Comfort / Sport / Track colours. Pick 'Esagono' in the cluster's widget menu. Live rpm needs an hmictl helper (IterioDev Overlays); EXPERIMENTAL, untested on a car.",
+  "description": "Supercar-style hexagon rev ring for the middle of the iDrive 8 cluster: 72-segment rev ring, redline and shift flash, big digital rpm readout, Comfort / Sport / Track colours. Pick 'Esagono' in the cluster's widget menu; change its settings in the Esagono Settings app. Live rpm needs an hmictl helper (IterioDev Overlays); EXPERIMENTAL, untested on a car.",
   "optional": true,
   "uninstallable": true,
   "mguHmi": ["ID8"],

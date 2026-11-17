@@ -8,6 +8,9 @@ After=cluster-render.socket vsomeipd.service
 ExecStart=/usr/bin/node /var/opt/esagono-cluster/current/esagono.js
 # the car's system.conf has DefaultStandardOutput=null: the log would never reach the journal
 StandardOutput=journal
+# the settings app's control socket: /run/esagono-cluster/ctl.sock (0666, the app runs as its own uid)
+RuntimeDirectory=esagono-cluster
+RuntimeDirectoryMode=0755
 Restart=always
 RestartSec=5
 
