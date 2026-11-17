@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Esagono Widget Preview</title>
+<style>
+  :root{--bg:#050506;--text:#e9e9ec;--muted:#8a8a93;--line:#26262c}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;padding:16px}
+  .still{padding:0}
+  canvas{display:block;width:min(632px,100%);height:auto;aspect-ratio:632/572;background:#000}
+  .still canvas{width:632px}
+  .row{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+  button{background:#141418;color:var(--text);border:1px solid var(--line);padding:8px 14px;cursor:pointer;font-weight:600}
+  #err{color:#ff6a5a;white-space:pre-wrap;font-family:monospace}
+  p{color:var(--muted);max-width:632px}
+</style>
+</head>
+<body>
+<canvas id="c" width="632" height="572"></canvas>
+<div class="row" id="ui">
+  <button data-m="0">COMFORT</button><button data-m="1">SPORT</button><button data-m="2">TRACK</button>
+  <button id="bg">BACKDROP</button>
+</div>
+<p id="note">The exact shader cluster-render runs (tools/esagono-cluster/shader.js), compiled here with WebGL 1 / GLSL ES 1.00. The rpm sweep is simulated.</p>
+<div id="err"></div>
+<script src="../tools/esagono-cluster/shader.js"></script>
+<script>
+const q = new URLSearchParams(location.search);
+const still = q.has('still');
+if (still) { document.body.className = 'still'; document.getElementById('ui').remove(); document.getElementById('note').remove(); }
+const cv = document.getElementById('c');
+const gl = cv.getContext('webgl', { premultipliedAlpha: false, preserveDrawingBuffer: true });
+const VS = 'attribute vec2 a; varying vec2 v_uv; void main(){ v_uv = vec2(a.x*0.5+0.5, 0.5-a.y*0.5); gl_Position = vec4(a,0.0,1.0); }';
+function sh(type, src) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog = gl.createProgram();
+let ok = true;
+try {
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, window.ESAGONO_FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+} catch (e) { ok = false; document.getElementById('err').textContent = 'SHADER ERROR\n' + e.message; document.title = 'SHADER ERROR'; }
+if (ok) {
+  document.title = 'SHADER OK';
+  gl.useProgram(prog);
+  const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'a'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  const U = n => gl.getUniformLocation(prog, n);
+  const ACC = [[0.31,0.85,1.0],[1.0,0.77,0.0],[1.0,0.23,0.12]];
+  let mode = +(q.get('mode') || 1), bgOn = 1;
+  document.querySelectorAll('[data-m]').forEach(x => x.onclick = () => mode = +x.dataset.m);
+  const bgb = document.getElementById('bg'); if (bgb) bgb.onclick = () => bgOn = 1 - bgOn;
+  const MAX = 9000, RED = 7500, FLASH = 7800;
+  function frame(now) {
+    const ph = (now / 1000) % 7;
+    let rpm = still ? +(q.get('rpm') || 6400) : (ph < 5 ? 1000 + 7800 * Math.pow(ph / 5, 1.4) : 1000 + 7800 * (1 - (ph - 5) / 2));
+    const flash = rpm >= FLASH && Math.floor(now / 80) % 2 === 0;
+    const k = Math.round(rpm / 100);
+    gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.uniform2f(U('u_size'), 632, 572);
+    gl.uniform1f(U('u_rpm'), rpm / MAX); gl.uniform1f(U('u_red'), RED / MAX); gl.uniform1f(U('u_divs'), MAX / 1000);
+    gl.uniform3fv(U('u_accent'), ACC[mode]); gl.uniform1f(U('u_flash'), flash ? 1 : 0);
+    gl.uniform3f(U('u_num'), Math.floor(k / 10) % 10, k % 10, 1); gl.uniform1f(U('u_mode'), mode); gl.uniform1f(U('u_bg'), bgOn);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    if (!still) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>

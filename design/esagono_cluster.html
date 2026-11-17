@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Esagono Cluster Theme</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root{--bg:#0b0b0d;--panel:#141418;--text:#e9e9ec;--muted:#8a8a93;--accent:#FFC400;--line:#26262c}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:"Chakra Petch",system-ui,sans-serif;padding:24px 16px 40px}
+  .wrap{max-width:1500px;margin:0 auto}
+  h1{font-family:Orbitron,sans-serif;font-weight:900;letter-spacing:.12em;font-size:clamp(20px,3vw,30px);margin:0 0 4px}
+  h1 span{color:var(--accent)}
+  .sub{color:var(--muted);margin:0 0 20px;font-size:15px}
+  .bezel{background:linear-gradient(180deg,#1b1b20,#0a0a0c);padding:clamp(6px,1.2vw,16px);border-radius:28px 28px 40px 40px;box-shadow:0 30px 80px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.06)}
+  canvas{display:block;width:100%;height:auto;aspect-ratio:1920/720;border-radius:18px 18px 30px 30px;background:#000;touch-action:none}
+  .controls{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;align-items:center}
+  button{font-family:inherit;font-weight:600;font-size:14px;letter-spacing:.08em;color:var(--text);background:var(--panel);border:1px solid var(--line);padding:10px 16px;cursor:pointer;clip-path:polygon(10px 0,100% 0,calc(100% - 10px) 100%,0 100%);transition:background .15s}
+  button:hover{background:#1f1f25}
+  button.on{background:var(--accent);color:#000;border-color:var(--accent)}
+  .spacer{flex:1}
+  .hold{user-select:none;-webkit-user-select:none}
+  .keys{color:var(--muted);font-size:13px;margin-top:14px;line-height:1.7}
+  kbd{font-family:inherit;background:#1a1a1f;border:1px solid var(--line);padding:1px 7px;border-radius:4px;color:var(--text)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ESAGONO <span>//</span> iDrive 8 Cluster</h1>
+  <p class="sub">Supercar-style hexagon cluster theme · 1920×720 · live preview + layered PNG export</p>
+  <div class="bezel"><canvas id="c" width="1920" height="720"></canvas></div>
+  <div class="controls">
+    <button data-mode="comfort">COMFORT</button>
+    <button data-mode="sport" class="on">SPORT</button>
+    <button data-mode="track">TRACK</button>
+    <button id="units">KM/H</button>
+    <button id="demo" class="on">AUTO DEMO</button>
+    <span class="spacer"></span>
+    <button id="gas" class="hold">HOLD: THROTTLE</button>
+    <button id="brk" class="hold">HOLD: BRAKE</button>
+    <button id="export">EXPORT ASSETS (.ZIP)</button>
+  </div>
+  <div class="keys"><kbd>W</kbd>/<kbd>↑</kbd> throttle · <kbd>S</kbd>/<kbd>↓</kbd> brake · <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> drive mode · <kbd>U</kbd> units · <kbd>A</kbd> auto demo</div>
+</div>
+
+<script>
+const W = 1920, H = 720;
+const CX = 960, CY = 392, R = 300;
+const A0 = Math.PI * 0.75, A1 = Math.PI * 2.25, SWEEP = A1 - A0;
+const RPM_MAX = 9000, REDLINE = 7500, SEGS = 72;
+const FONT_NUM = 'Orbitron, "Chakra Petch", sans-serif';
+const FONT_TXT = '"Chakra Petch", sans-serif';
+
+const MODES = {
+  comfort: { name: 'COMFORT', accent: '#4FD8FF', low: '#4FD8FF', mid: '#B8F0FF', high: '#FF3A22' },
+  sport:   { name: 'SPORT',   accent: '#FFC400', low: '#FFC400', mid: '#FF8A00', high: '#FF2A1A' },
+  track:   { name: 'TRACK',   accent: '#FF3B1F', low: '#FF6A1F', mid: '#FF3B1F', high: '#FFFFFF' },
+};
+
+/* ---------- helpers ---------- */
+const rpmAng = r => A0 + SWEEP * Math.min(r, RPM_MAX) / RPM_MAX;
+function mk() { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; }
+function hexPath(ctx, x, y, r, rot = 0) {
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = rot + i * Math.PI / 3;
+    ctx[i ? 'lineTo' : 'moveTo'](x + r * Math.cos(a), y + r * Math.sin(a));
+  }
+  ctx.closePath();
+}
+function poly(ctx, pts) { ctx.beginPath(); pts.forEach((p, i) => ctx[i ? 'lineTo' : 'moveTo'](p[0], p[1])); ctx.closePath(); }
+function hexA(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+
+const LEFT_PANEL  = [[80,150],[560,150],[620,230],[620,520],[570,585],[80,585],[40,545],[40,190]];
+const RIGHT_PANEL = LEFT_PANEL.map(([x, y]) => [W - x, y]);
+
+/* ---------- static layers ---------- */
+function drawBackground(ctx, m) {
+  const M = MODES[m];
+  ctx.fillStyle = '#040406'; ctx.fillRect(0, 0, W, H);
+  let g = ctx.createRadialGradient(CX, CY, 40, CX, CY, 900);
+  g.addColorStop(0, hexA(M.accent, .10)); g.addColorStop(.5, hexA(M.accent, .025)); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  // hex grid, faded with radial mask
+  const p = mk(), pc = p.getContext('2d');
+  const hr = 24, hw = hr * Math.sqrt(3);
+  pc.strokeStyle = 'rgba(255,255,255,.06)'; pc.lineWidth = 1.2;
+  for (let row = -1; row * hr * 1.5 < H + hr; row++)
+    for (let col = -1; col * hw < W + hw; col++) {
+      hexPath(pc, col * hw + (row & 1 ? hw / 2 : 0), row * hr * 1.5, hr - 2, Math.PI / 6); pc.stroke();
+    }
+  pc.globalCompositeOperation = 'destination-in';
+  const mg = pc.createRadialGradient(CX, CY, 150, CX, CY, 1000);
+  mg.addColorStop(0, 'rgba(0,0,0,1)'); mg.addColorStop(.7, 'rgba(0,0,0,.35)'); mg.addColorStop(1, 'rgba(0,0,0,0)');
+  pc.fillStyle = mg; pc.fillRect(0, 0, W, H);
+  ctx.drawImage(p, 0, 0);
+
+  // side panels
+  for (const P of [LEFT_PANEL, RIGHT_PANEL]) {
+    poly(ctx, P);
+    const pg = ctx.createLinearGradient(0, 150, 0, 585);
+    pg.addColorStop(0, 'rgba(22,22,28,.85)'); pg.addColorStop(1, 'rgba(10,10,13,.85)');
+    ctx.fillStyle = pg; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  // accent corner cuts on the panels
+  ctx.strokeStyle = M.accent; ctx.lineWidth = 3; ctx.shadowColor = M.accent; ctx.shadowBlur = 12;
+  for (const s of [1, -1]) {
+    const X = x => s > 0 ? x : W - x;
+    ctx.beginPath(); ctx.moveTo(X(40), 230); ctx.lineTo(X(40), 190); ctx.lineTo(X(80), 150); ctx.lineTo(X(200), 150); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X(620), 470); ctx.lineTo(X(620), 520); ctx.lineTo(X(570), 585); ctx.lineTo(X(470), 585); ctx.stroke();
+  }
+  ctx.shadowBlur = 0;
+
+  // "brow" Y-lines framing the tach
+  ctx.strokeStyle = hexA(M.accent, .55); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(560, 150); ctx.lineTo(690, 72); ctx.lineTo(860, 72); ctx.lineTo(890, 58); ctx.lineTo(1030, 58); ctx.lineTo(1060, 72); ctx.lineTo(1230, 72); ctx.lineTo(1360, 150); ctx.stroke();
+  // bottom chevron
+  ctx.strokeStyle = 'rgba(255,255,255,.12)';
+  ctx.beginPath(); ctx.moveTo(640, 650); ctx.lineTo(900, 650); ctx.lineTo(925, 668); ctx.lineTo(995, 668); ctx.lineTo(1020, 650); ctx.lineTo(1280, 650); ctx.stroke();
+
+  // edge vignette
+  const v = ctx.createLinearGradient(0, 0, W, 0);
+  v.addColorStop(0, 'rgba(0,0,0,.6)'); v.addColorStop(.08, 'rgba(0,0,0,0)'); v.addColorStop(.92, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.6)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+}
+
+function segPath(ctx, i) {
+  const gap = 0.006, major = i % 8 === 0;
+  const a = A0 + SWEEP * i / SEGS + gap, b = A0 + SWEEP * (i + 1) / SEGS - gap;
+  const rin = major ? R - 48 : R - 36;
+  ctx.beginPath(); ctx.arc(CX, CY, R, a, b); ctx.arc(CX, CY, rin, b, a, true); ctx.closePath();
+}
+function segColor(M, i) {
+  const r = i * RPM_MAX / SEGS;
+  return r >= REDLINE ? M.high : r >= 6000 ? M.mid : M.low;
+}
+
+function drawTachStatic(ctx, m) {
+  const M = MODES[m];
+  // unlit segments
+  for (let i = 0; i < SEGS; i++) {
+    segPath(ctx, i);
+    ctx.fillStyle = i * RPM_MAX / SEGS >= REDLINE ? '#2c0d0b' : '#17181d';
+    ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.05)'; ctx.lineWidth = 1; ctx.stroke();
+  }
+  // outer ring + redline
+  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.18)';
+  ctx.beginPath(); ctx.arc(CX, CY, R + 14, A0, rpmAng(REDLINE)); ctx.stroke();
+  ctx.strokeStyle = '#FF2A1A'; ctx.lineWidth = 5; ctx.shadowColor = '#FF2A1A'; ctx.shadowBlur = 10;
+  ctx.beginPath(); ctx.arc(CX, CY, R + 14, rpmAng(REDLINE), A1); ctx.stroke(); ctx.shadowBlur = 0;
+  // ticks
+  for (let r = 0; r <= RPM_MAX; r += 500) {
+    const a = rpmAng(r), big = r % 1000 === 0;
+    ctx.strokeStyle = r >= REDLINE ? '#FF2A1A' : big ? '#ffffff' : 'rgba(255,255,255,.35)';
+    ctx.lineWidth = big ? 3 : 2;
+    ctx.beginPath();
+    ctx.moveTo(CX + Math.cos(a) * (R + 22), CY + Math.sin(a) * (R + 22));
+    ctx.lineTo(CX + Math.cos(a) * (R + (big ? 40 : 32)), CY + Math.sin(a) * (R + (big ? 40 : 32)));
+    ctx.stroke();
+  }
+  // numerals
+  ctx.font = `700 34px ${FONT_NUM}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (let k = 0; k <= 9; k++) {
+    const a = rpmAng(k * 1000);
+    ctx.fillStyle = k * 1000 >= REDLINE ? '#FF2A1A' : '#d8d8de';
+    ctx.fillText(k, CX + Math.cos(a) * (R - 82), CY + Math.sin(a) * (R - 82));
+  }
+  // centre hexagon
+  const hy = CY + 8;
+  hexPath(ctx, CX, hy, 168);
+  const hg = ctx.createRadialGradient(CX, hy - 40, 10, CX, hy, 170);
+  hg.addColorStop(0, '#1d1d24'); hg.addColorStop(1, '#08080a');
+  ctx.fillStyle = hg; ctx.fill();
+  ctx.strokeStyle = M.accent; ctx.lineWidth = 2.5; ctx.shadowColor = M.accent; ctx.shadowBlur = 18; ctx.stroke(); ctx.shadowBlur = 0;
+  hexPath(ctx, CX, hy, 152); ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 1.5; ctx.stroke();
+  // divider inside hex
+  ctx.strokeStyle = hexA(M.accent, .5); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(CX - 95, hy + 40); ctx.lineTo(CX - 20, hy + 40); ctx.lineTo(CX - 10, hy + 48); ctx.lineTo(CX + 10, hy + 48); ctx.lineTo(CX + 20, hy + 40); ctx.lineTo(CX + 95, hy + 40); ctx.stroke();
+  // label
+  ctx.font = `600 17px ${FONT_TXT}`; ctx.fillStyle = 'rgba(255,255,255,.4)';
+  ctx.fillText('RPM × 1000', CX, CY + 210);
+}
+
+function drawTachLit(ctx, m, rpm, glow = true) {
+  const M = MODES[m];
+  const n = Math.round(SEGS * Math.min(rpm, RPM_MAX) / RPM_MAX);
+  for (let i = 0; i < n; i++) {
+    segPath(ctx, i);
+    const col = segColor(M, i);
+    ctx.fillStyle = col;
+    if (glow) { ctx.shadowColor = col; ctx.shadowBlur = i > n - 4 ? 26 : 12; }
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+}
+
+function drawShiftLights(ctx, rpm, flash) {
+  const N = 15, sp = 46, x0 = CX - sp * (N - 1) / 2, y = 34;
+  for (let i = 0; i < N; i++) {
+    const th = 6000 + i * (1800 / N);
+    const on = rpm >= th;
+    let col = i < 5 ? '#2BFF6A' : i < 10 ? '#FFC400' : '#FF2A1A';
+    if (flash) col = '#7FD8FF';
+    hexPath(ctx, x0 + i * sp, y, 16, Math.PI / 6);
+    if (on || flash) { ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 18; ctx.fill(); ctx.shadowBlur = 0; }
+    else { ctx.fillStyle = '#141418'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.1)'; ctx.lineWidth = 1; ctx.stroke(); }
+  }
+}
+
+function hexBar(ctx, x, y, w, val, M, warnHigh) {
+  const n = 20, sw = w / n;
+  for (let i = 0; i < n; i++) {
+    const on = i < Math.round(val * n);
+    const xs = x + i * sw;
+    poly(ctx, [[xs + 6, y], [xs + sw - 2, y], [xs + sw - 8, y + 18], [xs, y + 18]]);
+    let col = M.accent;
+    if (warnHigh && i >= 16) col = '#FF2A1A';
+    if (!warnHigh && i < 3) col = '#FF8A00';
+    ctx.fillStyle = on ? col : '#1c1c22'; ctx.fill();
+  }
+}
+
+/* ---------- dynamic layer ---------- */
+function drawDynamic(ctx, s, m, t) {
+  const M = MODES[m];
+  const flash = s.rpm > 7900 && Math.floor(t * 12) % 2 === 0;
+
+  drawTachLit(ctx, m, s.rpm);
+  if (flash) {
+    ctx.strokeStyle = m === 'track' ? '#7FD8FF' : M.high; ctx.lineWidth = 6; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 30;
+    ctx.beginPath(); ctx.arc(CX, CY, R + 14, A0, A1); ctx.stroke(); ctx.shadowBlur = 0;
+  }
+  if (m === 'track') drawShiftLights(ctx, s.rpm, flash);
+
+  // gear
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.font = `900 150px ${FONT_NUM}`; ctx.fillStyle = M.accent; ctx.shadowColor = M.accent; ctx.shadowBlur = 22;
+  ctx.fillText(s.speed < 0.5 && s.thr === 0 ? 'N' : s.gear, CX, CY + 22); ctx.shadowBlur = 0;
+  // speed
+  const spd = Math.round(s.units === 'mph' ? s.speed * 0.6214 : s.speed);
+  ctx.font = `700 62px ${FONT_NUM}`; ctx.fillStyle = '#fff';
+  ctx.fillText(spd, CX, CY + 118);
+  ctx.font = `600 18px ${FONT_TXT}`; ctx.fillStyle = 'rgba(255,255,255,.5)';
+  ctx.fillText(s.units === 'mph' ? 'MPH' : 'KM/H', CX, CY + 146);
+
+  // ---- left panel
+  ctx.textAlign = 'left';
+  ctx.font = `600 18px ${FONT_TXT}`; ctx.fillStyle = 'rgba(255,255,255,.45)';
+  ctx.fillText('DRIVE MODE', 100, 200);
+  ctx.font = `900 50px ${FONT_NUM}`; ctx.fillStyle = M.accent;
+  ctx.fillText(M.name, 100, 254);
+  const rows = [
+    ['COOLANT', `${Math.round(s.coolant)}°C`, (s.coolant - 50) / 80, true],
+    ['OIL',     `${Math.round(s.oil)}°C`,     (s.oil - 50) / 90,     true],
+    ['FUEL',    `${Math.round(s.fuel * 100)}%`, s.fuel,              false],
+  ];
+  rows.forEach(([lab, val, f, hi], k) => {
+    const y = 318 + k * 82;
+    ctx.font = `600 18px ${FONT_TXT}`; ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.textAlign = 'left';
+    ctx.fillText(lab, 100, y);
+    ctx.font = `700 22px ${FONT_NUM}`; ctx.fillStyle = '#fff'; ctx.textAlign = 'right';
+    ctx.fillText(val, 580, y);
+    hexBar(ctx, 100, y + 14, 480, Math.max(0, Math.min(1, f)), M, hi);
+  });
+
+  // ---- right panel
+  ctx.textAlign = 'left';
+  const RX = 1340, RX2 = 1590;
+  const lab = (t, x, y) => { ctx.font = `600 18px ${FONT_TXT}`; ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.fillText(t, x, y); };
+  const val = (t, x, y, sz = 40, col = '#fff') => { ctx.font = `700 ${sz}px ${FONT_NUM}`; ctx.fillStyle = col; ctx.fillText(t, x, y); };
+  if (m === 'track') {
+    const lap = (t - s.lapStart);
+    const fmt = x => `${Math.floor(x / 60)}:${(x % 60).toFixed(2).padStart(5, '0')}`;
+    lab('LAP TIME', RX, 200); val(fmt(lap), RX, 254, 50, M.accent);
+    lab('BEST', RX, 318); val(s.best ? fmt(s.best) : '--:--.--', RX, 362, 34);
+    lab('LAP', RX2, 318); val(String(s.lap).padStart(2, '0'), RX2, 362, 34);
+    lab('LAT G', RX, 430); val((Math.abs(Math.sin(t * .7)) * 1.2).toFixed(2), RX, 474, 34);
+    lab('LONG G', RX2, 430); val((s.accel / 35).toFixed(2), RX2, 474, 34);
+  } else {
+    const d = new Date();
+    lab('LOCAL TIME', RX, 200);
+    val(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`, RX, 254, 50);
+    const km = s.units === 'mph';
+    lab('RANGE', RX, 318);   val(km ? `${Math.round(s.fuel * 600 * .6214)} mi` : `${Math.round(s.fuel * 600)} km`, RX, 362, 34);
+    lab('OUTSIDE', RX2, 318); val('14°C', RX2, 362, 34);
+    lab('AVG', RX, 430);     val('9.8 L', RX, 474, 34);
+    lab('TRIP A', RX2, 430); val(`${(128.4 + s.dist).toFixed(1)}`, RX2, 474, 34);
+  }
+  ctx.font = `600 16px ${FONT_TXT}`; ctx.fillStyle = 'rgba(255,255,255,.3)';
+  ctx.fillText('MEDIA · NAV · ASSIST', RX, 548);
+
+  // bottom odometer
+  ctx.textAlign = 'center'; ctx.font = `600 18px ${FONT_TXT}`; ctx.fillStyle = 'rgba(255,255,255,.5)';
+  ctx.fillText(`ODO  ${(24518 + s.dist).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')} KM`, CX, 700);
+}
+
+/* ---------- state + physics ---------- */
+const RATIOS = [0, 3.2, 2.3, 1.75, 1.38, 1.12, 0.93, 0.78];
+const S = { speed: 0, gear: 1, rpm: 900, thr: 0, brk: 0, oil: 62, coolant: 84, fuel: .68, dist: 0, accel: 0,
+            units: 'kmh', lapStart: 0, lap: 1, best: 0, shiftCut: 0 };
+let mode = 'sport', demo = true, keys = {}, held = { gas: false, brk: false };
+let demoT = 0, demoPhase = 'gas', demoDur = 6;
+
+function step(dt, t) {
+  if (demo) {
+    demoT += dt;
+    if (demoT > demoDur) {
+      demoT = 0;
+      demoPhase = demoPhase === 'gas' ? 'brake' : demoPhase === 'brake' ? 'coast' : 'gas';
+      demoDur = demoPhase === 'gas' ? 4 + Math.random() * 5 : demoPhase === 'brake' ? 1.5 + Math.random() * 2 : 1 + Math.random();
+    }
+    S.thr = demoPhase === 'gas' ? 1 : 0; S.brk = demoPhase === 'brake' ? 1 : 0;
+  } else {
+    S.thr = (keys.w || keys.arrowup || held.gas) ? 1 : 0;
+    S.brk = (keys.s || keys.arrowdown || held.brk) ? 1 : 0;
+  }
+  const cut = S.shiftCut > 0 ? 0 : 1; S.shiftCut -= dt;
+  const pull = 16 * Math.pow(RATIOS[S.gear] / RATIOS[1], .7) * S.thr * cut;
+  const drag = 0.00035 * S.speed * S.speed + (S.speed > 0 ? 0.8 : 0);
+  S.accel = pull - drag - S.brk * 32;
+  S.speed = Math.max(0, Math.min(340, S.speed + S.accel * dt));
+  S.dist += S.speed * dt / 3600;
+
+  let target = S.speed * RATIOS[S.gear] * 30;
+  if (S.speed < 25 && S.gear === 1) target = Math.max(target, 900 + S.thr * 3200);
+  target = Math.max(900, target);
+  S.rpm += (target - S.rpm) * Math.min(1, dt * 10);
+
+  if (S.rpm > 8150 && S.gear < 7) { S.gear++; S.shiftCut = .12; }
+  if (S.rpm < 2600 && S.gear > 1 && S.speed * RATIOS[S.gear - 1] * 30 < 7000) S.gear--;
+
+  S.oil += ((60 + S.rpm / 90) - S.oil) * dt * .02;
+  S.coolant += ((84 + S.rpm / 800) - S.coolant) * dt * .05;
+  S.fuel = Math.max(.05, S.fuel - S.thr * dt * .00015);
+  if (t - S.lapStart > 92) { const l = t - S.lapStart; S.best = S.best ? Math.min(S.best, l) : l; S.lapStart = t; S.lap++; }
+}
+
+/* ---------- render loop ---------- */
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const cache = {};
+function buildCache(m) {
+  const c = mk(), x = c.getContext('2d');
+  drawBackground(x, m); drawTachStatic(x, m);
+  cache[m] = c;
+}
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  const t = now / 1000;
+  step(dt, t);
+  ctx.drawImage(cache[mode], 0, 0);
+  drawDynamic(ctx, S, mode, t);
+  requestAnimationFrame(frame);
+}
+
+/* ---------- UI ---------- */
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+  document.documentElement.style.setProperty('--accent', MODES[m].accent);
+  if (m === 'track') { S.lapStart = performance.now() / 1000; }
+}
+document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+const unitsBtn = document.getElementById('units');
+unitsBtn.onclick = () => { S.units = S.units === 'kmh' ? 'mph' : 'kmh'; unitsBtn.textContent = S.units === 'mph' ? 'MPH' : 'KM/H'; };
+const demoBtn = document.getElementById('demo');
+const setDemo = v => { demo = v; demoBtn.classList.toggle('on', v); };
+demoBtn.onclick = () => setDemo(!demo);
+for (const [id, k] of [['gas', 'gas'], ['brk', 'brk']]) {
+  const b = document.getElementById(id);
+  b.addEventListener('pointerdown', e => { e.preventDefault(); setDemo(false); held[k] = true; });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, () => held[k] = false);
+}
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (['w', 's', 'arrowup', 'arrowdown'].includes(k)) { setDemo(false); keys[k] = true; e.preventDefault(); }
+  if (k === '1') setMode('comfort'); if (k === '2') setMode('sport'); if (k === '3') setMode('track');
+  if (k === 'u') unitsBtn.click(); if (k === 'a') demoBtn.click();
+});
+addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+/* ---------- export ---------- */
+const toBlob = c => new Promise(r => c.toBlob(r, 'image/png'));
+document.getElementById('export').onclick = async () => {
+  const btn = document.getElementById('export'); btn.textContent = 'EXPORTING…';
+  const zip = new JSZip();
+  const layer = async (path, fn) => { const c = mk(); fn(c.getContext('2d')); zip.file(path, await toBlob(c)); };
+  for (const m of Object.keys(MODES)) {
+    await layer(`${m}/01_background.png`, x => drawBackground(x, m));
+    await layer(`${m}/02_tach_unlit.png`, x => drawTachStatic(x, m));
+    await layer(`${m}/03_tach_lit_full.png`, x => drawTachLit(x, m, RPM_MAX));
+    for (let i = 0; i < SEGS; i++)
+      await layer(`${m}/segments/seg_${String(i).padStart(2, '0')}.png`, x => {
+        segPath(x, i); const col = segColor(MODES[m], i); x.fillStyle = col; x.shadowColor = col; x.shadowBlur = 12; x.fill();
+      });
+    await layer(`_preview/${m}.png`, x => {
+      x.drawImage(cache[m], 0, 0);
+      drawDynamic(x, { ...S, speed: 148, gear: 4, rpm: 6400, thr: 1, accel: 8, lapStart: 0, best: 88.42, lap: 3 }, m, 61.37);
+    });
+  }
+  for (let k = 0; k <= 15; k++)
+    await layer(`track/shiftlights/shift_${String(k).padStart(2, '0')}.png`, x => drawShiftLights(x, k === 0 ? 0 : 6000 + (k - 1) * 120 + 1, false));
+  await layer('track/shiftlights/shift_flash.png', x => drawShiftLights(x, 9000, true));
+
+  zip.file('manifest.json', JSON.stringify({
+    theme: 'Esagono', resolution: [W, H],
+    tach: { center: [CX, CY], radiusOuter: R, radiusInner: R - 36, startAngleDeg: 135, sweepDeg: 270,
+            clockwise: true, rpmMax: RPM_MAX, redline: REDLINE, segments: SEGS, rpmPerSegment: RPM_MAX / SEGS },
+    text: {
+      gear:  { x: CX, y: CY + 22,  font: 'Orbitron 900', size: 150, align: 'center', color: 'accent' },
+      speed: { x: CX, y: CY + 118, font: 'Orbitron 700', size: 62,  align: 'center', color: '#FFFFFF' },
+      speedUnit: { x: CX, y: CY + 146, font: 'Chakra Petch 600', size: 18, align: 'center' },
+      driveMode: { x: 100, y: 254, font: 'Orbitron 900', size: 50, align: 'left', color: 'accent' },
+      odometer:  { x: CX, y: 700, font: 'Chakra Petch 600', size: 18, align: 'center' }
+    },
+    bars: { x: 100, width: 480, segments: 20, rows: { coolant: 332, oil: 414, fuel: 496 } },
+    shiftLights: { count: 15, startRpm: 6000, endRpm: 7800, centerY: 34, spacing: 46 },
+    modes: MODES
+  }, null, 2));
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'esagono_cluster_assets.zip'; a.click();
+  btn.textContent = 'EXPORT ASSETS (.ZIP)';
+};
+
+/* ---------- boot ---------- */
+(async () => {
+  try {
+    await Promise.race([
+      Promise.all(['900 100px Orbitron', '700 40px Orbitron', '600 18px "Chakra Petch"'].map(f => document.fonts.load(f))),
+      new Promise(r => setTimeout(r, 2500))
+    ]);
+  } catch (e) {}
+  Object.keys(MODES).forEach(buildCache);
+  setMode('sport');
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

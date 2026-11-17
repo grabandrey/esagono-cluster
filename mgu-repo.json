@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "tools": [
+    { "id": "esagono-cluster", "path": "tools/esagono-cluster" }
+  ]
+}
