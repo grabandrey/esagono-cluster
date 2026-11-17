@@ -27,7 +27,7 @@ It works as a live preview and an asset exporter, ready for an iDrive 7 port or 
 ## Install (MGU Store)
 
 1. Install **Cluster renderer** (`cluster-render`) 0.6.9 or newer from the official `robertnisipeanu/idrive-apps` source.
-2. In MGU Store, go to **Settings → Add source**, enter `<your-github-user>/esagono-cluster`, and pick the `main` branch.
+2. In MGU Store, go to **Settings → Add source**, enter `grabandrey/esagono-cluster`, and pick the `main` branch.
 3. Install **Esagono Cluster** and **Esagono Settings**.
 4. **Restart the head unit once.** cluster-render reads Esagono's widget entry only when it starts, and its README
    advises against restarting the service on its own on iDrive 8.
